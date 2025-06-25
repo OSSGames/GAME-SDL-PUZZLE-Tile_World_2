@@ -10,31 +10,17 @@
 #include <QBitmap>
 #include <QPainter>
 
-// #include <QTime>
-/*
-#include <QWaitCondition>
-#include <QMutex>
-*/
+#include <chrono>
+#include <thread>
 
-#ifdef WIN32
-	#include <windows.h>
-#else
-	#include <unistd.h>
-#endif
-
-#include <time.h>
-#include <sys/types.h>
-#include <sys/timeb.h>
-
-#include <stdio.h>
-
+genericglobals	geng;
 
 Qt_Surface::Qt_Surface()
 {
 	w = h = 0;
 	bytesPerPixel = 0;
 	pitch = 0;
-	pixels = 0;
+	pixels = nullptr;
 	m_bColorKeySet = false;
 	m_nColorKey = 0;
 }
@@ -45,7 +31,7 @@ void Qt_Surface::Init(const QPaintDevice& dev)
 	h = dev.height();
 	bytesPerPixel = dev.depth() / 8;
 	pitch = 0;
-	pixels = 0;
+	pixels = nullptr;
 }
 
 void Qt_Surface::InitImage()
@@ -118,7 +104,7 @@ void Qt_Surface::FillRect(const TW_Rect* pDstRect, uint32_t nColor)
 	}
 	
 	m_image = QImage();
-	pixels = 0;
+	pixels = nullptr;
 }
 
 
@@ -140,7 +126,7 @@ void Qt_Surface::BlitSurface(Qt_Surface* pSrc, const TW_Rect* pSrcRect,
 
 	(void)pDst->GetPixmap();
 	pDst->m_image = QImage();
-	pDst->pixels = 0;
+	pDst->pixels = nullptr;
 
 	QPixmap srcPix;
 	if (pSrc->IsColorKeySet())
@@ -308,9 +294,9 @@ extern "C" uint32_t TW_MapRGBA(const TW_Surface* pSurface, uint8_t r, uint8_t g,
  */
 extern "C" TW_Surface* TW_LoadBMP(const char* szFilename, int bSetScreenPalette)
 {
-	QImage image(szFilename);
+	QImage image(QString::fromLocal8Bit(szFilename));
 	if (image.isNull())
-		return 0;
+		return nullptr;
 	
 	image = image.convertToFormat(QImage::Format_ARGB32);
 	// Doesn't seem to be necessary, but just in case...
@@ -331,46 +317,22 @@ extern "C" void TW_DebugSurface(TW_Surface* s, const char* szFilename)
 	++n;
 	
 	Qt_Surface* pSurface = static_cast<Qt_Surface*>(s);
-	QString sNFilename = QString::number(n) + szFilename;
+	QString sNFilename = QString::number(n) + QString::fromLocal8Bit(szFilename);
 	pSurface->GetImage().save(sNFilename);
 	// pSurface->GetImage().createAlphaMask().save(sNFilename);
 }
 // $#@
 
 
+using namespace std::chrono;
+
 extern "C" uint32_t TW_GetTicks(void)
 {
-/*
-	static QTime time;
-	static bool bStarted = false;
-	if (!bStarted)
-	{
-		time.start();
-		bStarted = true;
-	}
-	return time.elapsed();
-*/
-
-	static const time_t t0 = time(0);
-	timeb timeBuf;
-	ftime(&timeBuf);
-	return  (timeBuf.time - t0) * 1000  +  timeBuf.millitm;
+	static const steady_clock::time_point t0 = steady_clock::now();
+	return duration_cast<milliseconds>(steady_clock::now() - t0).count();
 }
-
 
 extern "C" void TW_Delay(uint32_t nMS)
 {
-/*
-	static QWaitCondition waitCond;
-	static QMutex mutex;
-	mutex.lock();
-	waitCond.wait(&mutex, nMS);
-	mutex.unlock();
-*/
-
-#ifdef WIN32
-	Sleep(nMS);
-#else
-	usleep(nMS * 1000);
-#endif
+	std::this_thread::sleep_for(milliseconds(nMS));
 }

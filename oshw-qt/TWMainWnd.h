@@ -36,12 +36,12 @@ public:
 		PAGE_TEXT
 	};
 
-	TileWorldMainWnd(QWidget* pParent = 0, Qt::WindowFlags flags = 0);
+	TileWorldMainWnd(QWidget* pParent = nullptr, Qt::WindowFlags flags = Qt::WindowFlags());
 	~TileWorldMainWnd();
 
-	virtual bool eventFilter(QObject* pObject, QEvent* pEvent) override;
-	virtual void closeEvent(QCloseEvent* pCloseEvent) override;
-	virtual void timerEvent(QTimerEvent*) override;
+	bool eventFilter(QObject* pObject, QEvent* pEvent) override;
+	void closeEvent(QCloseEvent* pCloseEvent) override;
+	void timerEvent(QTimerEvent*) override;
 
 	bool SetKeyboardRepeat(bool bEnable);
 	uint8_t* GetKeyState(int* pnNumKeys);
@@ -116,7 +116,9 @@ private:
 	int m_nTimeLeft;
 	bool m_bTimedLevel;
 	bool m_bReplay;
-	
+    QString m_title;
+    QString m_author;
+
 	QSortFilterProxyModel* m_pSortFilterProxyModel;
 	QLocale m_locale;
 	

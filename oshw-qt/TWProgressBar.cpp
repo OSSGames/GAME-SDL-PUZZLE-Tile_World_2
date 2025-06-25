@@ -6,6 +6,7 @@
 
 #include <QPainter>
 #include <QPalette>
+#include <qdrawutil.h>
 
 
 TWProgressBar::TWProgressBar(QWidget* pParent)
@@ -50,7 +51,7 @@ void TWProgressBar::setFullBar(bool bFullBar)
 QString TWProgressBar::text() const
 {
 	QString sText = format();
-	sText.replace("%v", QString::number(m_nValue));
+	sText.replace(QStringLiteral("%v"), QString::number(m_nValue));
 	return sText;
 }
 

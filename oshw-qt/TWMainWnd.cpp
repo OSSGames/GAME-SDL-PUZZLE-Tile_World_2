@@ -17,6 +17,7 @@
 #include "../oshw.h"
 #include "../err.h"
 #include "../help.h"
+#include "TWTextCoder.h"
 
 extern int pedanticmode;
 
@@ -40,7 +41,7 @@ extern int pedanticmode;
 
 #include <QStyle>
 #include <QStyledItemDelegate>
-#include <QStyleOptionViewItemV2>
+#include <QStyleOptionViewItem>
 
 #include <QPainter>
 #include <QPalette>
@@ -55,28 +56,24 @@ extern int pedanticmode;
 
 #include <vector>
 
-#include <string.h>
-#include <ctype.h>
-
-using namespace std;
-
-#define COUNTOF(a) (sizeof(a) / sizeof(a[0]))
+#include <cstring>
+#include <cctype>
 
 class TWStyledItemDelegate : public QStyledItemDelegate
 {
 public:
-	TWStyledItemDelegate(QObject* pParent = 0)
+	TWStyledItemDelegate(QObject* pParent = nullptr)
 		: QStyledItemDelegate(pParent) {}
 		
-	virtual void paint(QPainter* pPainter, const QStyleOptionViewItem& option,
-		const QModelIndex& index) const;
+	void paint(QPainter* pPainter, const QStyleOptionViewItem& option,
+		const QModelIndex& index) const override;
 };
 
 
 void TWStyledItemDelegate::paint(QPainter* pPainter, const QStyleOptionViewItem& _option,
 	const QModelIndex& index) const
 {
-	QStyleOptionViewItemV2 option = _option;
+	QStyleOptionViewItem option = _option;
 	option.state &= ~QStyle::State_HasFocus;
 	QStyledItemDelegate::paint(pPainter, option, index);
 }
@@ -87,13 +84,13 @@ void TWStyledItemDelegate::paint(QPainter* pPainter, const QStyleOptionViewItem&
 class TWTableModel : public QAbstractTableModel
 {
 public:
-	TWTableModel(QObject* pParent = 0);
+	TWTableModel(QObject* pParent = nullptr);
 	void SetTableSpec(const tablespec* pSpec);
 	
-	virtual int rowCount(const QModelIndex& parent = QModelIndex()) const;
-	virtual int columnCount(const QModelIndex& parent = QModelIndex()) const;
-	virtual QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const;
-	virtual QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const;
+	int rowCount(const QModelIndex& parent = QModelIndex()) const override;
+	int columnCount(const QModelIndex& parent = QModelIndex()) const override;
+	QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
+	QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 	
 protected:
 	struct ItemInfo
@@ -104,7 +101,7 @@ protected:
 	};
 	
 	int m_nRows, m_nCols;
-	vector<ItemInfo> m_vecItems;
+	std::vector<ItemInfo> m_vecItems;
 	
 	QVariant GetData(int row, int col, int role) const;
 };
@@ -119,6 +116,8 @@ TWTableModel::TWTableModel(QObject* pParent)
 
 void TWTableModel::SetTableSpec(const tablespec* pSpec)
 {
+	beginResetModel();
+
 	m_nRows = pSpec->rows;
 	m_nCols = pSpec->cols;
 	int n = m_nRows * m_nCols;
@@ -134,8 +133,11 @@ void TWTableModel::SetTableSpec(const tablespec* pSpec)
 		const char* p = *pp;
 		ItemInfo ii;
 
-		ii.sText = p + 2;
-		
+		ii.sText = TWTextCoder::decode(p + 2);
+		// The "center dot" character (U+00B7) isn't very visible in
+		// some fonts, so we use U+25CF instead.
+		ii.sText.replace(QChar(0x00B7), QChar(0x25CF));
+
 		char c = p[1];
 		Qt::Alignment ha = (c=='+' ? Qt::AlignRight : c=='.' ? Qt::AlignHCenter : Qt::AlignLeft);
 		ii.align = (ha | Qt::AlignVCenter);
@@ -151,7 +153,7 @@ void TWTableModel::SetTableSpec(const tablespec* pSpec)
 		i += d;
 	}
 	
-	reset();
+	endResetModel();
 }
 
 int TWTableModel::rowCount(const QModelIndex& parent) const
@@ -201,8 +203,9 @@ TileWorldMainWnd::TileWorldMainWnd(QWidget* pParent, Qt::WindowFlags flags)
 	QMainWindow(pParent, flags/*|Qt::FramelessWindowHint*/),
 	m_bSetupUi(false),
 	m_bWindowClosed(false),
-	m_pSurface(0),
-	m_pInvSurface(0),
+	m_pSurface(),
+	m_pInvSurface(),
+	m_nKeyState(),
 	m_shortMessages(),
 	m_bKbdRepeatEnabled(true),
 	m_nRuleset(Ruleset_None),
@@ -214,15 +217,15 @@ TileWorldMainWnd::TileWorldMainWnd(QWidget* pParent, Qt::WindowFlags flags)
 	m_nTimeLeft(TIME_NIL),
 	m_bTimedLevel(false),
 	m_bReplay(false),
-	m_pSortFilterProxyModel(0)
+    m_title(""),
+    m_author(""),
+	m_pSortFilterProxyModel()
 {
-	memset(m_nKeyState, 0, TWK_LAST*sizeof(uint8_t));
-	
 	setupUi(this);
 	m_bSetupUi = true;
 	
 	QLayout* pGameLayout = m_pGamePage->layout();
-	if (pGameLayout != 0)
+	if (pGameLayout != nullptr)
 	{
 		pGameLayout->setAlignment(m_pGameFrame, Qt::AlignCenter);
 		pGameLayout->setAlignment(m_pInfoFrame, Qt::AlignCenter);
@@ -239,32 +242,32 @@ TileWorldMainWnd::TileWorldMainWnd(QWidget* pParent, Qt::WindowFlags flags)
 	pal.setBrush(QPalette::Window, QBrush(gradient));
 	m_pMainWidget->setPalette(pal);
 
-	m_pTblList->setItemDelegate( new TWStyledItemDelegate(m_pTblList) );
+	m_pTblList->setItemDelegate(new TWStyledItemDelegate(m_pTblList));
 	
-	m_pTextBrowser->setSearchPaths(QStringList(seriesdatdir));
+	m_pTextBrowser->setSearchPaths(QStringList{ QString::fromLocal8Bit(seriesdatdir) });
 	
 	g_pApp->installEventFilter(this);
 
-	connect( m_pTblList, SIGNAL(activated(const QModelIndex&)), this, SLOT(OnListItemActivated(const QModelIndex&)) );
-	connect( m_pRadioMs, SIGNAL(toggled(bool)), this, SLOT(OnRulesetSwitched(bool)) );
-	connect( m_pTxtFind, SIGNAL(textChanged(const QString&)), this, SLOT(OnFindTextChanged(const QString&)) );
-	connect( m_pTxtFind, SIGNAL(returnPressed()), this, SLOT(OnFindReturnPressed()) );
-	connect( m_pBtnPlay, SIGNAL(clicked()), this, SLOT(OnPlayback()) );
-	connect( m_pSldSpeed, SIGNAL(valueChanged(int)), this, SLOT(OnSpeedValueChanged(int)) );
-	connect( m_pSldSpeed, SIGNAL(sliderReleased()), this, SLOT(OnSpeedSliderReleased()) );
-	connect( m_pSldSeek, SIGNAL(valueChanged(int)), this, SLOT(OnSeekPosChanged(int)) );
-	connect( m_pBtnTextNext, SIGNAL(clicked()), this, SLOT(OnTextNext()) );
-	connect( m_pBtnTextPrev, SIGNAL(clicked()), this, SLOT(OnTextPrev()) );
-	connect( m_pBtnTextReturn, SIGNAL(clicked()), this, SLOT(OnTextReturn()) );
+	connect(m_pTblList, &QTableView::activated, this, &TileWorldMainWnd::OnListItemActivated);
+	connect(m_pRadioMs, &QRadioButton::toggled, this, &TileWorldMainWnd::OnRulesetSwitched);
+	connect(m_pTxtFind, &QLineEdit::textChanged, this, &TileWorldMainWnd::OnFindTextChanged);
+	connect(m_pTxtFind, &QLineEdit::returnPressed, this, &TileWorldMainWnd::OnFindReturnPressed);
+	connect(m_pBtnPlay, &QToolButton::clicked, this, &TileWorldMainWnd::OnPlayback);
+	connect(m_pSldSpeed, &QSlider::valueChanged, this, &TileWorldMainWnd::OnSpeedValueChanged);
+	connect(m_pSldSpeed, &QSlider::sliderReleased, this, &TileWorldMainWnd::OnSpeedSliderReleased);
+	connect(m_pSldSeek, &QSlider::valueChanged, this, &TileWorldMainWnd::OnSeekPosChanged);
+	connect(m_pBtnTextNext, &QToolButton::clicked, this, &TileWorldMainWnd::OnTextNext);
+	connect(m_pBtnTextPrev, &QToolButton::clicked, this, &TileWorldMainWnd::OnTextPrev);
+	connect(m_pBtnTextReturn, &QToolButton::clicked, this, &TileWorldMainWnd::OnTextReturn);
 
-	connect( new QShortcut(Qt::Key_Escape, m_pTextPage), SIGNAL(activated()), this, SLOT(OnTextReturn()) );
-	connect( new QShortcut(Qt::CTRL+Qt::Key_R, m_pTextPage), SIGNAL(activated()), this, SLOT(OnTextReturn()) );
-	connect( new QShortcut(Qt::CTRL+Qt::Key_N, m_pTextPage), SIGNAL(activated()), this, SLOT(OnTextNext()) );
-	connect( new QShortcut(Qt::CTRL+Qt::Key_P, m_pTextPage), SIGNAL(activated()), this, SLOT(OnTextPrev()) );
-	connect( new QShortcut(Qt::Key_N, m_pTextPage), SIGNAL(activated()), this, SLOT(OnTextNext()) );
-	connect( new QShortcut(Qt::Key_P, m_pTextPage), SIGNAL(activated()), this, SLOT(OnTextPrev()) );
+	connect(new QShortcut(Qt::Key_Escape, m_pTextPage), &QShortcut::activated, this, &TileWorldMainWnd::OnTextReturn);
+	connect(new QShortcut(Qt::CTRL|Qt::Key_R, m_pTextPage), &QShortcut::activated, this, &TileWorldMainWnd::OnTextReturn);
+	connect(new QShortcut(Qt::CTRL|Qt::Key_N, m_pTextPage), &QShortcut::activated, this, &TileWorldMainWnd::OnTextNext);
+	connect(new QShortcut(Qt::CTRL|Qt::Key_P, m_pTextPage), &QShortcut::activated, this, &TileWorldMainWnd::OnTextPrev);
+	connect(new QShortcut(Qt::Key_N, m_pTextPage), &QShortcut::activated, this, &TileWorldMainWnd::OnTextNext);
+	connect(new QShortcut(Qt::Key_P, m_pTextPage), &QShortcut::activated, this, &TileWorldMainWnd::OnTextPrev);
 	
-	connect( m_pMenuBar, SIGNAL(triggered(QAction*)), this, SLOT(OnMenuActionTriggered(QAction*)) );
+	connect(m_pMenuBar, &QMenuBar::triggered, this, &TileWorldMainWnd::OnMenuActionTriggered);
 
 	action_displayCCX->setChecked(getintsetting("displayccx"));
 	action_forceShowTimer->setChecked(getintsetting("forceshowtimer") > 0);
@@ -389,9 +392,8 @@ bool TileWorldMainWnd::HandleEvent(QObject* pObject, QEvent* pEvent)
 
 			// Handle modifier keys falling out of sync due to some events never being received
 			// E.g., Windows 7 never sends Alt key-up after Alt+Tab
-			for (size_t m = 0; m < COUNTOF(g_modKeys); ++m)
+			for (const QtModifier_TWKey& mod : g_modKeys)
 			{
-				const QtModifier_TWKey& mod = g_modKeys[m];
 				if (mod.nTWKey == nTWKey)
 					continue;
 				bool bModPressed = ((pKeyEvent->modifiers() & mod.nQtMod) != 0);
@@ -404,7 +406,7 @@ bool TileWorldMainWnd::HandleEvent(QObject* pObject, QEvent* pEvent)
 			}
 				
 			bool bConsume = (m_pMainWidget->currentIndex() == PAGE_GAME) &&
-							(QApplication::activeModalWidget() == 0);
+							(QApplication::activeModalWidget() == nullptr);
 			// Only consume keys for the game, not for the tables or the message boxes
 			//  with the exception of a few keys for the table
 			QObjectList const & tableWidgets = m_pTablePage->children();
@@ -453,7 +455,7 @@ bool TileWorldMainWnd::HandleEvent(QObject* pObject, QEvent* pEvent)
 			if (pObject != m_pGameWidget)
 				return false;
 			QMouseEvent* pMouseEvent = static_cast<QMouseEvent*>(pEvent);
-			mouseeventcallback(pMouseEvent->x(), pMouseEvent->y(), pMouseEvent->button(),
+			mouseeventcallback(pMouseEvent->pos().x(), pMouseEvent->pos().y(), pMouseEvent->button(),
 				(eType == QEvent::MouseButtonPress));
 			return true;
 		}
@@ -464,9 +466,18 @@ bool TileWorldMainWnd::HandleEvent(QObject* pObject, QEvent* pEvent)
 			if (pObject != m_pGameWidget)
 				return false;
 			QWheelEvent* pWheelEvent = static_cast<QWheelEvent*>(pEvent);
-			mouseeventcallback(pWheelEvent->x(), pWheelEvent->y(),
-				(pWheelEvent->delta() > 0 ? TW_BUTTON_WHEELUP : TW_BUTTON_WHEELDOWN),
-				true);
+			const int scrollDelta = pWheelEvent->angleDelta().y();
+			if (scrollDelta != 0)
+			{
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+				const QPointF eventPos(pWheelEvent->position());
+#else
+				const QPoint eventPos(pWheelEvent->x(), pWheelEvent->y());
+#endif
+				mouseeventcallback(int(eventPos.x()), int(eventPos.y()),
+					(scrollDelta > 0 ? TW_BUTTON_WHEELUP : TW_BUTTON_WHEELDOWN),
+					true);
+			}
 			return true;
 		}
 		break;
@@ -486,7 +497,7 @@ extern "C" uint8_t* TW_GetKeyState(int* pnNumKeys)
 
 uint8_t* TileWorldMainWnd::GetKeyState(int* pnNumKeys)
 {
-	if (pnNumKeys != 0)
+	if (pnNumKeys != nullptr)
 		*pnNumKeys = TWK_LAST;
 	return m_nKeyState;
 }
@@ -514,7 +525,12 @@ void TileWorldMainWnd::OnPlayback()
  */
 int setkeyboardrepeat(int enable)
 {
-	return g_pMainWnd->SetKeyboardRepeat(enable);
+	if (g_pMainWnd) {
+		return g_pMainWnd->SetKeyboardRepeat(enable);
+	}
+	else {
+		return true;
+	}
 }
 
 bool TileWorldMainWnd::SetKeyboardRepeat(bool bEnable)
@@ -635,15 +651,29 @@ bool TileWorldMainWnd::DisplayGame(const gamestate* pState, int nTimeLeft, int n
 
 		m_pLCDNumber->display(pState->game->number);
 
-		QString sTitle = pState->game->name;
-		m_pLblTitle->setText(sTitle);
-		Qt::AlignmentFlag halign = (m_pLblTitle->sizeHint().width() <= m_pLblTitle->width()) ? Qt::AlignHCenter : Qt::AlignLeft;
-		m_pLblTitle->setAlignment(halign | Qt::AlignVCenter);
+		m_title = TWTextCoder::decode(pState->game->name);
+        m_bOFNT = (m_title.compare(QStringLiteral("YOU CAN'T TEACH AN OLD FROG NEW TRICKS"),
+                                  Qt::CaseInsensitive) == 0);
+
+        m_pLblTitle->setText(m_title);
+        Qt::AlignmentFlag halign = (m_pLblTitle->sizeHint().width() <= m_pLblTitle->width()) ? Qt::AlignHCenter : Qt::AlignLeft;
+        m_pLblTitle->setAlignment(halign | Qt::AlignVCenter);
+
+        m_author = TWTextCoder::decode(pState->game->author);
+        if (m_author.isEmpty()) {
+            m_author = m_ccxLevelset.vecLevels[m_nLevelNum].sAuthor;
+        }
+        if (!m_author.isEmpty()) {
+            m_pLblAuthor->setText(m_author);
+            halign = (m_pLblAuthor->sizeHint().width() <= m_pLblAuthor->width()) ? Qt::AlignHCenter : Qt::AlignLeft;
+            m_pLblAuthor->setAlignment(halign | Qt::AlignVCenter);
+            m_pLblAuthor->show();
+        } else {
+            m_pLblAuthor->hide();
+        }
 		
-		m_pLblPassword->setText(pState->game->passwd);
-		
-		m_bOFNT = (sTitle.toUpper() == "YOU CAN'T TEACH AN OLD FROG NEW TRICKS");
-			
+		m_pLblPassword->setText(TWTextCoder::decode(pState->game->passwd));
+
 		m_pSldSeek->setValue(0);
 		bool bHasSolution = hassolution(pState->game);
 		m_pControlsFrame->setVisible(bHasSolution);
@@ -652,7 +682,7 @@ bool TileWorldMainWnd::DisplayGame(const gamestate* pState, int nTimeLeft, int n
 		menu_Solution->setEnabled(bHasSolution);
 		menu_Help->setEnabled(true);
 		action_GoTo->setEnabled(true);
-                CCX::Level const & currLevel
+		CCX::Level const & currLevel
 		    (m_ccxLevelset.vecLevels[m_nLevelNum]);
 		bool hasPrologue(!currLevel.txtPrologue.vecPages.empty());
 		bool hasEpilogue(!currLevel.txtEpilogue.vecPages.empty());
@@ -663,7 +693,7 @@ bool TileWorldMainWnd::DisplayGame(const gamestate* pState, int nTimeLeft, int n
 		
 		bool bParBad = (pState->game->sgflags & SGF_REPLACEABLE) != 0;
 		m_pPrgTime->setParBad(bParBad);
-		const char* a = bParBad ? " *" : "";
+		QString a = bParBad ? QStringLiteral(" *") : QString();
 
 		m_pPrgTime->setFullBar(!bTimedLevel);
 
@@ -671,11 +701,11 @@ bool TileWorldMainWnd::DisplayGame(const gamestate* pState, int nTimeLeft, int n
 		{
 			if (nBestTime == TIME_NIL)
 			{
-				m_pPrgTime->setFormat("%v");
+				m_pPrgTime->setFormat(QStringLiteral("%v"));
 			}
 			else
 			{
-				m_pPrgTime->setFormat(QString::number(nBestTime) + a + " / %v");
+				m_pPrgTime->setFormat(QString::number(nBestTime) + a + QStringLiteral(" / %v"));
 				m_pPrgTime->setPar(nBestTime);
 				m_pSldSeek->setMaximum(nTimeLeft-nBestTime);
 			}
@@ -684,12 +714,13 @@ bool TileWorldMainWnd::DisplayGame(const gamestate* pState, int nTimeLeft, int n
 		}
 		else
 		{
-			char const *noTime = (bForceShowTimer ? "[999]" : "---");
+			const QString noTime = (bForceShowTimer ? QStringLiteral("[999]") : QStringLiteral("---"));
 			if (nBestTime == TIME_NIL)
 				m_pPrgTime->setFormat(noTime);
 			else
 			{
-				m_pPrgTime->setFormat("[" + QString::number(nBestTime) + a + "] / " + noTime);
+				m_pPrgTime->setFormat(QLatin1Char('[') + QString::number(nBestTime) + a
+					+ QStringLiteral("] / ") + noTime);
 				m_pSldSeek->setMaximum(999-nBestTime);
 			}
 			m_pPrgTime->setMaximum(999);
@@ -717,7 +748,12 @@ bool TileWorldMainWnd::DisplayGame(const gamestate* pState, int nTimeLeft, int n
 		menu_Game->setEnabled(false);
 		menu_Solution->setEnabled(false);
 		menu_Help->setEnabled(false);
-		action_GoTo->setEnabled(false);
+
+        menu_Game->hide();
+        menu_Solution->hide();
+        menu_Help->hide();
+
+        action_GoTo->setEnabled(false);
 		action_Prologue->setEnabled(false);
 		action_Epilogue->setEnabled(false);
 	}
@@ -747,17 +783,20 @@ bool TileWorldMainWnd::DisplayGame(const gamestate* pState, int nTimeLeft, int n
 	if (!bInit)
 	{
 		QString sFormat;
-		std::string sFormatString;
 		if (bTimedLevel)
-			sFormatString = "%%v";
+			sFormat = QStringLiteral("%v");
 		else if (bForceShowTimer)
-			sFormatString = "[%%v]";
+			sFormat = QStringLiteral("[%v]");
 		else
-			sFormatString = "---";
+			sFormat = QStringLiteral("---");
 
-		if ((bTimedLevel || bForceShowTimer) && nBestTime != TIME_NIL)
-			sFormatString += " (%+d)";
-		sFormat.sprintf(sFormatString.c_str(), nTimeLeft-nBestTime);
+		if ((bTimedLevel || bForceShowTimer) && nBestTime != TIME_NIL) {
+            int value = nTimeLeft-nBestTime;
+            if (value >= 0)
+                sFormat += QStringLiteral(" (+%1)").arg(value);
+            else
+                sFormat += QStringLiteral(" (%1)").arg(value);
+        }
 		m_pPrgTime->setFormat(sFormat);
 	}
 
@@ -776,12 +815,12 @@ bool TileWorldMainWnd::DisplayGame(const gamestate* pState, int nTimeLeft, int n
 		if (bShowInitState && m_bReplay)
 		{
 			if (SetHintMode(HINT_INITSTATE))
-				m_pLblHint->setText(getinitstatestring());
+				m_pLblHint->setText(TWTextCoder::decode(getinitstatestring()));
 		}
 		else if (bShowHint)
 		{
 			if (SetHintMode(HINT_TEXT))
-				m_pLblHint->setText(pState->hinttext);
+				m_pLblHint->setText(TWTextCoder::decode(pState->hinttext));
 		}
 		else if (SetHintMode(HINT_EMPTY))
 			m_pLblHint->clear();
@@ -796,14 +835,14 @@ void TileWorldMainWnd::CheckForProblems(const gamestate* pState)
 
 	if (pState->statusflags & SF_INVALID)
 	{
-		s = "This level cannot be played.";
+		s = tr("This level cannot be played.");
 	}
 	else if (pState->game->unsolvable)
 	{
-		s = "This level is reported to be unsolvable";
+		s = tr("This level is reported to be unsolvable");
 		if (*pState->game->unsolvable)
-			s += ": " + QString(pState->game->unsolvable);
-		s += ".";
+			s += QStringLiteral(": ") + TWTextCoder::decode(pState->game->unsolvable);
+		s += QLatin1Char('.');
 	}
 	else
 	{
@@ -822,7 +861,7 @@ void TileWorldMainWnd::CheckForProblems(const gamestate* pState)
 		}
 		if (compat == CCX::COMPAT_NO)
 		{
-			s = "This level is flagged as being incompatible with the current ruleset.";
+			s = tr("This level is flagged as being incompatible with the current ruleset.");
 		}
 	}
 
@@ -899,7 +938,7 @@ void TileWorldMainWnd::DisplayShutter()
 	QFont font;
 	font.setPixelSize(geng.htile);
 	painter.setFont(font);
-	painter.drawText(pixmap.rect(), Qt::AlignCenter, "Paused");
+	painter.drawText(pixmap.rect(), Qt::AlignCenter, tr("Paused"));
 	painter.end();
 
 	m_pGameWidget->setPixmap(pixmap);
@@ -990,15 +1029,13 @@ int TileWorldMainWnd::DisplayEndMessage(int nBaseScore, int nTimeScore, long lTo
 	
 	if (nCompleted > 0)	// Success
 	{
-		QString sTitle = m_pLblTitle->text();
-		QString sAuthor = m_ccxLevelset.vecLevels[m_nLevelNum].sAuthor;
-		const char* szMsg = 0;
+		const char* szMsg = nullptr;
 		if (m_bReplay)
 			szMsg = "Alright!";
 		else
-                {
+		{
 			szMsg = getmessage(MessageWin);
-                        if (!szMsg)
+			if (!szMsg)
 				szMsg = "You won!";
 		}
 
@@ -1008,11 +1045,11 @@ int TileWorldMainWnd::DisplayEndMessage(int nBaseScore, int nTimeScore, long lTo
 		strm
 			<< "<table>"
 			// << "<tr><td><hr></td></tr>"
-			<< "<tr><td><big><b>" << sTitle << "</b></big></td></tr>"
+			<< "<tr><td><big><b>" << m_title << "</b></big></td></tr>"
 			// << "<tr><td><hr></td></tr>"
 			;
-		if (!sAuthor.isEmpty())
-			strm << "<tr><td>by " << sAuthor << "</td></tr>";
+		if (!m_author.isEmpty())
+			strm << "<tr><td>by " << m_author << "</td></tr>";
 		strm
 			<< "<tr><td><hr></td></tr>"
 			<< "<tr><td>&nbsp;</td></tr>"
@@ -1061,20 +1098,24 @@ int TileWorldMainWnd::DisplayEndMessage(int nBaseScore, int nTimeScore, long lTo
 		msgBox.setIconPixmap(pSurface->GetPixmap());
 		TW_FreeSurface(pSurface);
 		
-		msgBox.setWindowTitle(m_bReplay ? "Replay Completed" : "Level Completed");
+		msgBox.setWindowTitle(m_bReplay ? tr("Replay Completed") : tr("Level Completed"));
 
-		m_sTextToCopy = timestring
-			(m_nLevelNum,
-			 sTitle.toLatin1().constData(),
-			 m_nTimeLeft, m_bTimedLevel, false);
+		m_sTextToCopy = TWTextCoder::decode(
+			timestring(m_nLevelNum,
+                       TWTextCoder::encode(m_title).constData(),
+				m_nTimeLeft, m_bTimedLevel, false));
 
-		msgBox.addButton("&Onward!", QMessageBox::AcceptRole);
-		QPushButton* pBtnRestart = msgBox.addButton("&Restart", QMessageBox::AcceptRole);
-		QPushButton* pBtnCopyScore = msgBox.addButton("&Copy Score", QMessageBox::ActionRole);
-		connect( pBtnCopyScore, SIGNAL(clicked()), this, SLOT(OnCopyText()) );
+		msgBox.addButton(tr("&Onward!"), QMessageBox::AcceptRole);
+		QPushButton* pBtnRestart = msgBox.addButton(tr("&Restart"), QMessageBox::AcceptRole);
+		QPushButton* pBtnCopyScore = msgBox.addButton(tr("&Copy Score"), QMessageBox::ActionRole);
+		connect(pBtnCopyScore, &QPushButton::clicked, this, &TileWorldMainWnd::OnCopyText);
 		
 		msgBox.exec();
 		ReleaseAllKeys();
+
+		// macOS *does* return focus to the main window after closing the
+		// victory dialog; this is here in case that changes
+		this->activateWindow();
 		if (msgBox.clickedButton() == pBtnRestart)
 			return CmdSameLevel;
 			
@@ -1086,20 +1127,21 @@ int TileWorldMainWnd::DisplayEndMessage(int nBaseScore, int nTimeScore, long lTo
 		bool bTimeout = (m_bTimedLevel  &&  m_nTimeLeft <= 0);
 		if (m_bReplay)
 		{
-			QString sMsg = "Whoa!  Chip ";
+			QString sMsg = QStringLiteral("Whoa!  Chip ");
 			if (bTimeout)
-				sMsg += "ran out of time";
+				sMsg += QStringLiteral("ran out of time");
 			else
-				sMsg += "ran into some trouble";
+				sMsg += QStringLiteral("ran into some trouble");
 			// TODO: What about when Chip just doesn't reach the exit or reaches the exit too early?
-			sMsg += " there.\nIt looks like the level has changed after that solution was recorded.";
+			sMsg += QStringLiteral(" there.\nIt looks like the level has changed after that solution"
+				" was recorded.");
 			msgBox.setText(sMsg);
 			msgBox.setIcon(QMessageBox::Warning);
-			msgBox.setWindowTitle("Replay Failed");
+			msgBox.setWindowTitle(tr("Replay Failed"));
 		}
 		else
 		{
-			const char* szMsg = 0;
+			const char* szMsg = nullptr;
 			if (bTimeout)
 			{
 				szMsg = getmessage(MessageTime);
@@ -1114,19 +1156,22 @@ int TileWorldMainWnd::DisplayEndMessage(int nBaseScore, int nTimeScore, long lTo
 			}
 			
 			msgBox.setTextFormat(Qt::PlainText);
-			msgBox.setText(szMsg);
+			msgBox.setText(TWTextCoder::decode(szMsg));
 			// setIcon also causes the corresponding system sound to play
 			// setIconPixmap does not
 			QStyle* pStyle = QApplication::style();
-			if (pStyle != 0)
+			if (pStyle)
 			{
 				QIcon icon = pStyle->standardIcon(QStyle::SP_MessageBoxWarning);
 				msgBox.setIconPixmap(icon.pixmap(48));
 			}
-			msgBox.setWindowTitle("Oops.");
+			msgBox.setWindowTitle(tr("Oops."));
 		}
 		msgBox.exec();
 		ReleaseAllKeys();
+		// macOS doesn't return focus to the main window after closing the death
+		// dialog; this fixes that
+		this->activateWindow();
 	}
 	
 	return CmdProceed;
@@ -1154,11 +1199,12 @@ bool TileWorldMainWnd::SetDisplayMsg(const char* szMsg, int nMSecs, int nBoldMSe
 	uint32_t nCurTime = TW_GetTicks();
 	uint32_t msgUntil = nCurTime + nMSecs;
 	uint32_t boldUntil = nCurTime + nBoldMSecs;
-	
-	m_pLblShortMsg->setForegroundRole(QPalette::BrightText);
-	m_pLblShortMsg->setText(szMsg);
+	const QString sMsg = TWTextCoder::decode(szMsg);
 
-	m_shortMessages.push_back({szMsg, msgUntil, boldUntil});
+	m_pLblShortMsg->setForegroundRole(QPalette::BrightText);
+	m_pLblShortMsg->setText(sMsg);
+
+	m_shortMessages.push_back({sMsg, msgUntil, boldUntil});
 	return true;
 }
 
@@ -1218,8 +1264,8 @@ int TileWorldMainWnd::DisplayList(const char* szTitle, const tablespec* pTableSp
 	*pnIndex = proxyModel.mapToSource(m_pTblList->currentIndex()).row();
 
 	SetCurrentPage(PAGE_GAME);
-	m_pTblList->setModel(0);
-	m_pSortFilterProxyModel = 0;
+	m_pTblList->setModel(nullptr);
+	m_pSortFilterProxyModel = nullptr;
   }
 	
   if (m_bWindowClosed) g_pApp->ExitTWorld();
@@ -1236,11 +1282,9 @@ void TileWorldMainWnd::OnFindTextChanged(const QString& sText)
 {
 	if (!m_pSortFilterProxyModel) return;
 	
-	QString sWildcard;
-	if (sText.isEmpty())
-		sWildcard = "*";
-	else
-		sWildcard = '*' + sText + '*';
+	QString sWildcard = QStringLiteral("*");
+	if (!sText.isEmpty())
+		sWildcard += sText + QLatin1Char('*');
 	m_pSortFilterProxyModel->setFilterWildcard(sWildcard);
 }
 
@@ -1298,7 +1342,8 @@ int TileWorldMainWnd::DisplayInputPrompt(const char* szPrompt, char* pInput, int
 		case INPUT_YESNO:
 		{
 			QMessageBox::StandardButton eBtn = QMessageBox::question(
-				this, TileWorldApp::s_szTitle, szPrompt, QMessageBox::Yes|QMessageBox::No);
+				this, TileWorldApp::s_sTitle, TWTextCoder::decode(szPrompt),
+				QMessageBox::Yes|QMessageBox::No);
 			pInput[0] = (eBtn==QMessageBox::Yes) ? 'Y' : 'N';
 			pInput[1] = '\0';
 			return true;
@@ -1308,13 +1353,14 @@ int TileWorldMainWnd::DisplayInputPrompt(const char* szPrompt, char* pInput, int
 		default:
 		{
 			// TODO: proper validation, maybe embedded prompt
-			QString sText = QInputDialog::getText(this, TileWorldApp::s_szTitle, szPrompt);
+			QString sText = QInputDialog::getText(this, TileWorldApp::s_sTitle,
+				TWTextCoder::decode(szPrompt));
 			if (sText.isEmpty())
 				return false;
 			sText.truncate(nMaxLen);
 			if (eInputType == INPUT_ALPHA)
 				sText = sText.toUpper();
-			strcpy(pInput, sText.toAscii().constData());
+			strcpy(pInput, TWTextCoder::encode(sText).constData());
 			return true;
 		}
 	}
@@ -1343,9 +1389,9 @@ void setsubtitle(char const *subtitle)
 
 void TileWorldMainWnd::SetSubtitle(const char* szSubtitle)
 {
-	QString sTitle = TileWorldApp::s_szTitle;
+	QString sTitle = TileWorldApp::s_sTitle;
 	if (szSubtitle && *szSubtitle)
-		sTitle += " - " + QString(szSubtitle);
+		sTitle += QStringLiteral(" - ") + TWTextCoder::decode(szSubtitle);
 	setWindowTitle(sTitle);
 }
 
@@ -1423,19 +1469,20 @@ int TileWorldMainWnd::GetSelectedRuleset()
  */
 void readextensions(gameseries *series)
 {
-	if (g_pMainWnd == 0) return;	// happens during batch verify, etc.
+	if (g_pMainWnd == nullptr)
+		return;	// happens during batch verify, etc.
 	g_pMainWnd->ReadExtensions(series);
 }
 
 void TileWorldMainWnd::ReadExtensions(gameseries* pSeries)
 {
-	QDir dataDir(seriesdatdir);
-	QString sSetName = QFileInfo(pSeries->mapfilename).completeBaseName();
-	QString sFilePath = dataDir.filePath(sSetName + ".ccx");
+	QDir dataDir(QString::fromLocal8Bit(seriesdatdir));
+	QString sSetName = QFileInfo(QString::fromLocal8Bit(pSeries->mapfilename)).completeBaseName();
+	QString sFilePath = dataDir.filePath(sSetName + QStringLiteral(".ccx"));
 	
 	m_ccxLevelset.Clear();
 	if (!m_ccxLevelset.ReadFile(sFilePath, pSeries->count))
-		warn("%s: failed to read file", sFilePath.toAscii().constData());
+		warn("%s: failed to read file", TWTextCoder::encode(sFilePath).constData()); //is this printing? this should not be spitting out latin-1 OR windows-1252 if it is
 		
 	for (int i = 1; i <= pSeries->count; ++i)
 	{
@@ -1480,7 +1527,7 @@ void TileWorldMainWnd::Narrate(CCX::Text CCX::Level::*pmTxt, bool bForce)
 		m_pTextBrowser->setPalette(pal);
 
 		QTextDocument* pDoc = m_pTextBrowser->document();
-		if (pDoc != 0)
+		if (pDoc != nullptr)
 		{
 			if (!m_ccxLevelset.sStyleSheet.isEmpty())
 				pDoc->setDefaultStyleSheet(m_ccxLevelset.sStyleSheet);
@@ -1523,11 +1570,11 @@ void TileWorldMainWnd::ShowAbout()
 	for (int i = 0; i < numlines; ++i)
 	{
 		if (i > 0)
-			text += "\n\n";
-	    char const *item = vourzhon->items[2*i + 1];
-		text += (item + 2);  // skip over formatting chars
+			text += QStringLiteral("\n\n");
+		char const *item = vourzhon->items[2*i + 1];
+		text += TWTextCoder::decode(item + 2);  // skip over formatting chars
 	}
-	QMessageBox::about(this, "About", text);
+	QMessageBox::about(this, tr("About"), text);
 }
 
 void TileWorldMainWnd::OnTextNext()
@@ -1549,7 +1596,8 @@ void TileWorldMainWnd::OnTextReturn()
 void TileWorldMainWnd::OnCopyText()
 {
 	QClipboard* pClipboard = QApplication::clipboard();
-	if (pClipboard == 0) return;
+	if (pClipboard == nullptr)
+		return;
 	pClipboard->setText(m_sTextToCopy);
 }
 
@@ -1604,7 +1652,7 @@ int TileWorldMainWnd::GetTWKeyForAction(QAction* pAction) const
     if (pAction == action_Replace) return TWC_REPLSOLUTION;
     if (pAction == action_Delete) return TWC_KILLSOLUTION;
 
-	if (pAction == action_Keys) return TWC_KEYS;
+    if (pAction == action_Keys) return TWC_KEYS;
     return TWK_dummy;
 }
 

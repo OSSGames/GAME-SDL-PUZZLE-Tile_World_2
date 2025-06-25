@@ -65,6 +65,7 @@ static int compare_mapfileinfo(void const *a, void const *b)
     return stricmp(((mapfileinfo*)a)->filename, ((mapfileinfo*)b)->filename);
 }
 
+#ifdef TWPLUSPLUS
 /* Remove .dat and .ccl suffixes from the mapfilenames */
 static void removefilenamesuffixes(mfinfovector *v)
 {
@@ -79,6 +80,7 @@ static void removefilenamesuffixes(mfinfovector *v)
 	}
     }
 }
+#endif
 
 /* Mini-structure for finding/generating the series files.
  */
@@ -258,6 +260,10 @@ static int readleveldata(fileinfo *file, gamesetup *game)
 		game->passwd[n] = data[n] ^ 0x99;
 	    game->passwd[n] = '\0';
 	    break;
+      case 9:
+        memcpy(game->author, data, size);
+        game->author[size] = '\0';
+        break;
 	  case 8:
 	    warn("level %d: ignoring field 8 password", game->number);
 	    break;

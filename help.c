@@ -51,8 +51,9 @@ tablespec const *yowzitch = &yowzitch_table;
  */
 static char const *vourzhon_items[] = {
     "1+*", "1-Tile World: version " VERSION,
-    "1+",  "1-Copyright (c) 2001-2017 by Brian Raiter, Madhav Shanbhag, and"
-    	   " Eric Schmidt",
+    "1+",  "1-Copyright (c) 2001-2024 by Brian Raiter, Madhav Shanbhag, "
+	   "Eric Schmidt, Michael Hansen, ChosenID, David Stolp, "
+       "A Sickly Silver Moon, G lander, and Eevee",
     "1+",  "1-compiled " COMPILE_TIME,
     "1+*", "1!This program is free software; you can redistribute it and/or"
 	   " modify it under the terms of the GNU General Public License as"
@@ -62,8 +63,8 @@ static char const *vourzhon_items[] = {
 	   " useful, but WITHOUT ANY WARRANTY; without even the implied"
 	   " warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR"
 	   " PURPOSE. See the GNU General Public License for more details.",
-    "1+*", "1!Bug reports are appreciated, and can be sent to"
-           " eric41293@comcast.net or CrapulentCretin@Yahoo.com."
+    "1+*", "1!Bug reports are appreciated, and can be submitted at "
+	   "https://github.com/SicklySilverMoon/tworld/issues."
 };
 static tablespec const vourzhon_table = { 6, 2, 1, -1, vourzhon_items };
 tablespec const *vourzhon = &vourzhon_table;

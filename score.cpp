@@ -4,10 +4,10 @@
  * General Public License. No warranty. See COPYING for details.
  */
 
-#include	<stdio.h>
-#include	<stdlib.h>
-#include	<string.h>
-#include	<math.h>
+#include	<cstdio>
+#include	<cstdlib>
+#include	<cstring>
+#include	<cmath>
 
 #include	<string>
 #include	<sstream>
@@ -114,7 +114,7 @@ int createscorelist(gameseries const *series, int usepasswds, char zchar,
     char const **ptrs;
     char       *textheap;
     char       *blank;
-    int	       *levellist = NULL;
+    int	       *levellist = nullptr;
     int		levelscore, timescore;
     long	totalscore;
     int		count;
@@ -239,7 +239,7 @@ int createtimelist(gameseries const *series, int showpartial, char zchar,
     char const	      **ptrs;
     char	       *textheap;
     char	       *untimed;
-    int		       *levellist = NULL;
+    int		       *levellist = nullptr;
     long		leveltime;
     int			count;
     int			used, secs, j, n;

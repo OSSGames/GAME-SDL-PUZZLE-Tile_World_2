@@ -11,22 +11,19 @@
 #include "../gen.h"
 #include "../defs.h"
 #include "../oshw.h"
-
-#ifdef WIN32
-#include <QWindowsStyle>
-#endif
+#include "TWTextCoder.h"
 
 #include <QClipboard>
 
-#include <string.h>
-#include <stdlib.h>
+#include <cstring>
+#include <cstdlib>
 
 
-TileWorldApp* g_pApp = 0;
-TileWorldMainWnd* g_pMainWnd = 0;
+TileWorldApp* g_pApp = nullptr;
+TileWorldMainWnd* g_pMainWnd = nullptr;
 
 
-const char TileWorldApp::s_szTitle[] = "Tile World";
+const QString TileWorldApp::s_sTitle = QStringLiteral("Tile World");
 
 
 TileWorldApp::TileWorldApp(int& argc, char** argv)
@@ -34,7 +31,9 @@ TileWorldApp::TileWorldApp(int& argc, char** argv)
 	QApplication(argc, argv),
 	m_bSilence(false),
 	m_bShowHistogram(false),
-	m_bFullScreen(false)
+	m_bFullScreen(false),
+	m_argc(argc),
+	m_argv(argv)
 {
 	g_pApp = this;
 }
@@ -43,9 +42,9 @@ TileWorldApp::TileWorldApp(int& argc, char** argv)
 TileWorldApp::~TileWorldApp()
 {
 	delete g_pMainWnd;
-	g_pMainWnd = 0;
+	g_pMainWnd = nullptr;
 
-	g_pApp = 0;
+	g_pApp = nullptr;
 }
 
 
@@ -85,7 +84,7 @@ bool TileWorldApp::Initialize(bool bSilence, int nSoundBufSize,
 	m_bFullScreen = bFullScreen;
 	
 	g_pMainWnd = new TileWorldMainWnd;
-	g_pMainWnd->setWindowTitle(s_szTitle);
+	g_pMainWnd->setWindowTitle(s_sTitle);
 
 	if ( ! (
 		_generictimerinitialize(bShowHistogram) &&
@@ -133,13 +132,14 @@ void freefont(void)
 void copytoclipboard(char const *text)
 {
 	QClipboard* pClipboard = QApplication::clipboard();
-	if (pClipboard == 0) return;
-	pClipboard->setText(text);
+	if (pClipboard == nullptr)
+		return;
+	pClipboard->setText(TWTextCoder::decode(text));
 }
 
 int TileWorldApp::RunTWorld()
 {
-    return tworld(argc(), argv());
+    return tworld(m_argc, m_argv);
 }
 
 
@@ -164,14 +164,13 @@ int main(int argc, char *argv[])
 	for (int i = 1; i < argc; ++i)
 	{
 		const char* szArg = argv[i];
-		if (strlen(szArg) == 2  &&  szArg[0] == '-'  &&  strchr("lstbhdvV", szArg[1]) != 0)
+		if (strlen(szArg) == 2  &&  szArg[0] == '-'  &&  strchr("lstbhdvV", szArg[1]) != nullptr)
 			return tworld(argc, argv);
 	}
 	
 	TileWorldApp app(argc, argv);
-#ifdef WIN32
-	QApplication::setStyle(new QWindowsStyle());	// Vista / XP styles may mess up colors
-#endif
+	QApplication::setStyle(QStringLiteral("fusion"));	// Other styles may mess up colors
+	QApplication::setWindowIcon(QIcon(QStringLiteral(":/tworld2.ico")));
 
 	return app.RunTWorld();
 }
